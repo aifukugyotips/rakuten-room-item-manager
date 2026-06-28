@@ -1,0 +1,40 @@
+[tool.poetry]
+name = "rakuten-room-item-manager"
+version = "0.1.0"
+description = "楽天ROOMに投稿する商品を効率的に管理するツール"
+authors = ["note-ai-fukugyo-tips"]
+readme = "README.md"
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.110.0"
+uvicorn = {extras = ["standard"], version = "^0.27.0"}
+sqlalchemy = "^2.0.25"
+pydantic = "^2.6.0"
+python-multipart = "^0.0.9"
+openai = "^2.21.0"
+google-generativeai = "^0.8.6"
+anthropic = "^0.79.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+pytest-asyncio = "^0.23.0"
+pytest-cov = "^4.1.0"
+httpx = "^0.27.0"
+faker = "^24.0.0"
+pytest-mock = "^3.12.0"
+black = "^24.1.0"
+ruff = "^0.2.0"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+addopts = "-v --cov=backend --cov-report=html --cov-report=term-missing"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

@@ -1,0 +1,126 @@
+/**
+ * 楽天ROOMアイテムマネージャー
+ * カスタムスタイル
+ */
+
+/* Alpine.js の x-cloak ディレクティブ用 */
+[x-cloak] {
+    display: none !important;
+}
+
+/* 行数制限（TailwindCSSの補完） */
+.line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* スムーズなスクロール */
+html {
+    scroll-behavior: smooth;
+}
+
+/* カスタムスクロールバー（Webkit系ブラウザ） */
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+/* フォーカス時のアウトライン調整 */
+input:focus,
+select:focus,
+textarea:focus {
+    outline: none;
+}
+
+/* プレースホルダーのスタイル */
+::placeholder {
+    color: #9ca3af;
+    opacity: 1;
+}
+
+/* ボタンのホバーエフェクト */
+button {
+    transition: all 0.2s ease-in-out;
+}
+
+/* モーダルのアニメーション */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+/* レスポンシブ調整 */
+@media (max-width: 768px) {
+    .container {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+}
+
+/* ローディングアニメーション（将来使用） */
+.loading {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 3px solid rgba(0, 0, 0, 0.1);
+    border-radius: 50%;
+    border-top-color: #3b82f6;
+    animation: spin 1s ease-in-out infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* 通知トースト（将来使用） */
+.toast {
+    position: fixed;
+    bottom: 2rem;
+    right: 2rem;
+    background: #1f2937;
+    color: white;
+    padding: 1rem 1.5rem;
+    border-radius: 0.5rem;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    animation: slideIn 0.3s ease-in-out;
+    z-index: 1000;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+/* 印刷時のスタイル調整 */
+@media print {
+    .no-print {
+        display: none !important;
+    }
+}

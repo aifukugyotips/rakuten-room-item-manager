@@ -1,0 +1,2020 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>楽天ROOMアイテムマネージャー</title>
+
+    <!-- TailwindCSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Alpine.js CDN -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+    <!-- Cropper.js -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js"></script>
+
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="bg-gray-50">
+    <div x-data="roomManager()" x-cloak>
+        <!-- フィルタ変更時にフォーカスモードをリセット -->
+        <div x-effect="searchQuery; hashtagQuery; statusFilter; priorityFilter; if (focusMode) { selectedItemIndex = 0; scrollToSelectedItem(); }" class="hidden"></div>
+
+        <!-- 初回起動画面（プロフィール初期設定） -->
+        <div x-show="currentView === 'setup'" class="min-h-screen flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl shadow-xl max-w-3xl w-full p-8">
+                <div class="text-center mb-8">
+                    <h1 class="text-3xl font-bold text-gray-800 mb-2">🎉 楽天ROOMアイテムマネージャーへようこそ!</h1>
+                    <p class="text-gray-600">まず、ROOM名を設定してください</p>
+                    <p class="text-sm text-gray-500 mt-2">AI連携設定などは後から「設定」メニューで設定できます</p>
+                </div>
+
+                <form @submit.prevent="saveProfile()">
+                    <div class="mb-8">
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    ROOM名 <span class="text-red-500">*</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    x-model="profile.room_name"
+                                    required
+                                    placeholder="例: ガジェット好きのROOM"
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                >
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    ルームID（オプション）
+                                </label>
+                                <input
+                                    type="text"
+                                    x-model="profile.room_id"
+                                    placeholder="例: abc123def"
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                >
+                                <p class="text-xs text-gray-500 mt-1">設定すると、商品一覧画面にルームへのリンクが表示されます</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ボタン -->
+                    <div class="flex gap-4">
+                        <button
+                            type="button"
+                            @click="skipSetup()"
+                            class="flex-1 px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
+                        >
+                            スキップ（後で設定）
+                        </button>
+                        <button
+                            type="submit"
+                            class="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium"
+                        >
+                            保存して始める
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 商品一覧画面（メイン画面） -->
+        <div x-show="currentView === 'items'" class="min-h-screen">
+            <!-- ヘッダー -->
+            <div class="bg-white shadow-sm border-b border-gray-200">
+                <div class="container mx-auto px-4 py-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h1 class="text-2xl font-bold text-gray-800">
+                                🛍️ <span x-text="profile.room_name || '楽天ROOM'"></span> の商品管理
+                            </h1>
+                            <p class="text-sm text-gray-600 mt-1">
+                                登録商品: <span x-text="items.length"></span>件 |
+                                未投稿: <span x-text="unpublishedCount"></span>件 |
+                                今週投稿: <span x-text="weekPostedCount"></span>件
+                            </p>
+                            <template x-if="profile.room_id">
+                                <a
+                                    :href="'https://room.rakuten.co.jp/' + profile.room_id"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    class="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 hover:underline mt-2"
+                                >
+                                    🔗 ルームを開く
+                                </a>
+                            </template>
+                        </div>
+                        <div class="relative" @click.away="settingsMenuOpen = false">
+                            <button
+                                @click="settingsMenuOpen = !settingsMenuOpen"
+                                class="px-4 py-2 text-gray-600 hover:text-gray-800 transition flex items-center gap-2"
+                            >
+                                ⚙️ 設定
+                                <span x-text="settingsMenuOpen ? '▲' : '▼'" class="text-xs"></span>
+                            </button>
+
+                            <!-- ドロップダウンメニュー -->
+                            <div
+                                x-show="settingsMenuOpen"
+                                x-transition
+                                class="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50"
+                            >
+                                <button
+                                    @click="openBasicSettings()"
+                                    class="w-full text-left px-4 py-2 hover:bg-gray-100 transition"
+                                >
+                                    🏠 基本情報設定
+                                </button>
+                                <button
+                                    @click="openAISettings()"
+                                    class="w-full text-left px-4 py-2 hover:bg-gray-100 transition"
+                                >
+                                    🤖 AI連携設定
+                                </button>
+
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- アクションバー -->
+            <div class="bg-white border-b border-gray-200">
+                <div class="container mx-auto px-4 py-3">
+                    <div class="flex flex-wrap gap-3">
+                        <button
+                            @click="openItemModal(null)"
+                            class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium"
+                        >
+                            ➕ 新規登録
+                        </button>
+                        <label class="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition cursor-pointer">
+                            📥 インポート
+                            <input
+                                type="file"
+                                accept=".csv"
+                                @change="if ($event.target.files.length) importCSV($event.target.files[0]).then(() => $event.target.value = '')"
+                                class="hidden"
+                            >
+                        </label>
+                        <button
+                            @click="exportCSV()"
+                            class="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
+                        >
+                            📤 エクスポート
+                        </button>
+                        <button
+                            @click="openTrash()"
+                            class="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition relative"
+                        >
+                            🗑️ ゴミ箱
+                            <span
+                                x-show="trashCount > 0"
+                                x-text="trashCount"
+                                class="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center"
+                            ></span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 検索・フィルタ -->
+            <div class="container mx-auto px-4 py-6">
+                <div class="bg-white p-6 rounded-lg shadow-sm mb-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">🔍 商品名検索</label>
+                            <input
+                                type="text"
+                                x-model="searchQuery"
+                                placeholder="商品名で検索..."
+                                @keydown.escape.stop="$event.target.blur(); $nextTick(() => enterFocusMode(false));"
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            >
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">#️⃣ ハッシュタグ検索</label>
+                            <input
+                                type="text"
+                                x-model="hashtagQuery"
+                                placeholder="#タグで検索..."
+                                @keydown.escape.stop="$event.target.blur(); $nextTick(() => enterFocusMode(false));"
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            >
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">投稿状況</label>
+                            <select
+                                x-model="statusFilter"
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            >
+                                <option value="全て">全て</option>
+                                <option value="未投稿">未投稿</option>
+                                <option value="下書き">下書き</option>
+                                <option value="投稿済み">投稿済み</option>
+                                <option value="非公開">非公開</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">優先度</label>
+                            <select
+                                x-model="priorityFilter"
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            >
+                                <option value="全て">全て</option>
+                                <option value="5">⭐⭐⭐⭐⭐</option>
+                                <option value="4">⭐⭐⭐⭐</option>
+                                <option value="3">⭐⭐⭐</option>
+                                <option value="2">⭐⭐</option>
+                                <option value="1">⭐</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 flex gap-2">
+                        <button
+                            @click="clearFilters()"
+                            class="px-4 py-2 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
+                        >
+                            クリア
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 商品一覧 -->
+                <div class="mb-4 flex justify-between items-center">
+                    <p class="text-sm text-gray-600">
+                        <span x-text="filteredItems.length"></span>件の商品を表示中
+                    </p>
+                    <!-- 表示切り替えボタン -->
+                    <div class="flex gap-2 border border-gray-300 rounded-lg p-1">
+                        <button
+                            @click="changeViewMode('grid')"
+                            :class="viewMode === 'grid' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'"
+                            class="px-3 py-1.5 rounded transition text-sm font-medium"
+                        >
+                            📊 グリッド
+                        </button>
+                        <button
+                            @click="changeViewMode('list')"
+                            :class="viewMode === 'list' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'"
+                            class="px-3 py-1.5 rounded transition text-sm font-medium"
+                        >
+                            📋 リスト
+                        </button>
+                        <button
+                            @click="changeViewMode('compact')"
+                            :class="viewMode === 'compact' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'"
+                            class="px-3 py-1.5 rounded transition text-sm font-medium"
+                        >
+                            ≡ コンパクト
+                        </button>
+                        <button
+                            @click="changeViewMode('calendar'); clearDateFilter();"
+                            :class="viewMode === 'calendar' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'"
+                            class="px-3 py-1.5 rounded transition text-sm font-medium"
+                        >
+                            📅 カレンダー
+                        </button>
+                    </div>
+                </div>
+
+                <!-- グリッド表示 -->
+                <div x-show="viewMode === 'grid'" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <template x-for="(item, index) in filteredItems" :key="item.id">
+                        <div
+                            :data-item-index="index"
+                            class="bg-white rounded-lg shadow-sm hover:shadow-md transition overflow-hidden border border-gray-200"
+                            :class="{'ring-4 ring-blue-500 border-blue-500': focusMode && selectedItemIndex === index}"
+                        >
+                            <!-- 商品画像 -->
+                            <div @click="openItemModal(item)" class="aspect-square bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center overflow-hidden cursor-pointer">
+                                <template x-if="item.has_photo && item.photo_path">
+                                    <img
+                                        :src="'http://localhost:8000/' + item.photo_path"
+                                        :alt="item.name"
+                                        class="w-full h-full object-cover"
+                                    >
+                                </template>
+                                <template x-if="!item.has_photo || !item.photo_path">
+                                    <div class="text-6xl text-gray-300">📷</div>
+                                </template>
+                            </div>
+
+                            <!-- 商品情報 -->
+                            <div class="p-4">
+                                <div class="flex items-start justify-between mb-2">
+                                    <h3
+                                        @click="openItemModal(item)"
+                                        class="font-bold text-lg flex-1 line-clamp-2 cursor-pointer hover:text-blue-600 transition"
+                                        x-text="item.name"
+                                    ></h3>
+                                    <template x-if="item.rakuten_url">
+                                        <a
+                                            :href="item.rakuten_url"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            class="text-2xl hover:scale-110 transition ml-2"
+                                            title="商品ページを開く"
+                                            @click.stop
+                                        >🛒</a>
+                                    </template>
+                                </div>
+
+                                <div class="flex items-center gap-2 mb-2">
+                                    <span
+                                        class="px-2 py-1 text-xs rounded-full font-medium"
+                                        :class="{
+                                            'bg-red-100 text-red-800': item.status === '未投稿',
+                                            'bg-green-100 text-green-800': item.status === '投稿済み',
+                                            'bg-yellow-100 text-yellow-800': item.status === '下書き',
+                                            'bg-gray-100 text-gray-800': item.status === '非公開'
+                                        }"
+                                        x-text="item.status"
+                                    ></span>
+                                    <span class="text-sm text-gray-600" x-text="item.category"></span>
+                                </div>
+
+                                <p class="text-sm text-gray-500 mb-3 line-clamp-2" x-text="item.favorite_points || 'メモなし'"></p>
+
+                                <template x-if="item.status === '投稿済み' && item.posted_at_history && item.posted_at_history.length > 0">
+                                    <div class="text-xs text-gray-400 mb-2">
+                                        投稿: <span x-text="formatJSTDate(item.posted_at_history[0])"></span>
+                                        <span x-show="item.posted_at_history.length > 1"
+                                              x-text="`(履歴 ${item.posted_at_history.length}件)`"
+                                              class="ml-1 text-blue-600 font-medium"></span>
+                                    </div>
+                                </template>
+
+                                <div class="flex items-center justify-between pt-3 border-t border-gray-100">
+                                    <span class="text-sm" x-text="'⭐'.repeat(item.priority)"></span>
+                                    <div class="flex gap-2">
+                                        <button
+                                            @click="openItemModal(item)"
+                                            class="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                                        >
+                                            編集
+                                        </button>
+                                        <button
+                                            @click="deleteItem(item.id)"
+                                            class="text-red-600 hover:text-red-800 text-sm font-medium"
+                                        >
+                                            削除
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- リスト表示 -->
+                <div x-show="viewMode === 'list'" class="space-y-3">
+                    <template x-for="(item, index) in filteredItems" :key="item.id">
+                        <div
+                            :data-item-index="index"
+                            class="bg-white rounded-lg shadow-sm hover:shadow-md transition border border-gray-200 p-4"
+                            :class="{'ring-4 ring-blue-500 border-blue-500': focusMode && selectedItemIndex === index}"
+                        >
+                            <div class="flex gap-4">
+                                <!-- 商品画像 -->
+                                <div @click="openItemModal(item)" class="w-24 h-24 flex-shrink-0 bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg flex items-center justify-center overflow-hidden cursor-pointer">
+                                    <template x-if="item.has_photo && item.photo_path">
+                                        <img
+                                            :src="'http://localhost:8000/' + item.photo_path"
+                                            :alt="item.name"
+                                            class="w-full h-full object-cover"
+                                        >
+                                    </template>
+                                    <template x-if="!item.has_photo || !item.photo_path">
+                                        <div class="text-3xl text-gray-300">📷</div>
+                                    </template>
+                                </div>
+
+                                <!-- 商品情報 -->
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-start justify-between mb-2">
+                                        <div class="flex items-center gap-2 flex-1 min-w-0">
+                                            <h3
+                                                @click="openItemModal(item)"
+                                                class="font-bold text-lg truncate cursor-pointer hover:text-blue-600 transition"
+                                                x-text="item.name"
+                                            ></h3>
+                                            <template x-if="item.rakuten_url">
+                                                <a
+                                                    :href="item.rakuten_url"
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    class="text-xl hover:scale-110 transition flex-shrink-0"
+                                                    title="商品ページを開く"
+                                                    @click.stop
+                                                >🛒</a>
+                                            </template>
+                                        </div>
+                                        <div class="flex gap-2 ml-4 items-center flex-shrink-0">
+                                            <button
+                                                @click="openItemModal(item)"
+                                                class="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                                            >
+                                                編集
+                                            </button>
+                                            <button
+                                                @click="deleteItem(item.id)"
+                                                class="text-red-600 hover:text-red-800 text-sm font-medium"
+                                            >
+                                                削除
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div class="flex flex-wrap items-center gap-2 mb-2">
+                                        <span
+                                            class="px-2 py-1 text-xs rounded-full font-medium"
+                                            :class="{
+                                                'bg-red-100 text-red-800': item.status === '未投稿',
+                                                'bg-green-100 text-green-800': item.status === '投稿済み',
+                                                'bg-yellow-100 text-yellow-800': item.status === '下書き',
+                                                'bg-gray-100 text-gray-800': item.status === '非公開'
+                                            }"
+                                            x-text="item.status"
+                                        ></span>
+                                        <span class="text-sm text-gray-600" x-text="item.category"></span>
+                                        <span class="text-sm text-gray-500" x-show="item.brand_model" x-text="'・' + item.brand_model"></span>
+                                        <span class="text-sm" x-text="'⭐'.repeat(item.priority)"></span>
+                                    </div>
+
+                                    <p class="text-sm text-gray-500 line-clamp-2" x-text="item.favorite_points || 'メモなし'"></p>
+
+                                    <div class="mt-2 text-xs text-gray-400 space-x-3">
+                                        <template x-if="item.status === '投稿済み' && item.posted_at_history && item.posted_at_history.length > 0">
+                                            <span>
+                                                投稿: <span x-text="formatJSTDate(item.posted_at_history[0])"></span>
+                                                <span x-show="item.posted_at_history.length > 1"
+                                                      x-text="`(履歴 ${item.posted_at_history.length}件)`"
+                                                      class="ml-1 text-blue-600 font-medium"></span>
+                                            </span>
+                                        </template>
+                                        <span>
+                                            更新: <span x-text="formatJSTDate(item.updated_at)"></span>
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- コンパクト表示 -->
+                <div x-show="viewMode === 'compact'" class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">商品名</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ステータス</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">カテゴリ</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">優先度</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">投稿日</th>
+                                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                                <template x-for="(item, index) in filteredItems" :key="item.id">
+                                    <tr
+                                        :data-item-index="index"
+                                        class="hover:bg-gray-50 transition"
+                                        :class="{'ring-4 ring-inset ring-blue-500 bg-blue-50': focusMode && selectedItemIndex === index}"
+                                    >
+                                        <td class="px-4 py-3 whitespace-nowrap">
+                                            <div class="flex items-center gap-2">
+                                                <template x-if="item.has_photo && item.photo_path">
+                                                    <img
+                                                        @click="openItemModal(item)"
+                                                        :src="'http://localhost:8000/' + item.photo_path"
+                                                        :alt="item.name"
+                                                        class="w-8 h-8 object-cover rounded flex-shrink-0 cursor-pointer"
+                                                    >
+                                                </template>
+                                                <template x-if="!item.has_photo || !item.photo_path">
+                                                    <div @click="openItemModal(item)" class="w-8 h-8 bg-gray-100 rounded flex items-center justify-center flex-shrink-0 cursor-pointer">
+                                                        <span class="text-xs text-gray-400">📷</span>
+                                                    </div>
+                                                </template>
+                                                <span
+                                                    @click="openItemModal(item)"
+                                                    class="font-medium text-gray-900 cursor-pointer hover:text-blue-600 transition"
+                                                    x-text="item.name"
+                                                ></span>
+                                                <template x-if="item.rakuten_url">
+                                                    <a
+                                                        :href="item.rakuten_url"
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        class="text-sm hover:scale-110 transition flex-shrink-0"
+                                                        title="商品ページを開く"
+                                                        @click.stop
+                                                    >🛒</a>
+                                                </template>
+                                            </div>
+                                        </td>
+                                        <td class="px-4 py-3 whitespace-nowrap">
+                                            <span
+                                                class="px-2 py-1 text-xs rounded-full font-medium"
+                                                :class="{
+                                                    'bg-red-100 text-red-800': item.status === '未投稿',
+                                                    'bg-green-100 text-green-800': item.status === '投稿済み',
+                                                    'bg-yellow-100 text-yellow-800': item.status === '下書き',
+                                                    'bg-gray-100 text-gray-800': item.status === '非公開'
+                                                }"
+                                                x-text="item.status"
+                                            ></span>
+                                        </td>
+                                        <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-600" x-text="item.category || '-'"></td>
+                                        <td class="px-4 py-3 whitespace-nowrap text-sm" x-text="'⭐'.repeat(item.priority)"></td>
+                                        <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
+                                            <template x-if="item.status === '投稿済み' && item.posted_at_history && item.posted_at_history.length > 0">
+                                                <div>
+                                                    <span x-text="formatJSTDate(item.posted_at_history[0])"></span>
+                                                    <span x-show="item.posted_at_history.length > 1"
+                                                          x-text="`(履歴 ${item.posted_at_history.length}件)`"
+                                                          class="ml-1 text-blue-600 font-medium text-xs"></span>
+                                                </div>
+                                            </template>
+                                            <template x-if="item.status !== '投稿済み' || !item.posted_at_history || item.posted_at_history.length === 0">
+                                                <span class="text-gray-400">-</span>
+                                            </template>
+                                        </td>
+                                        <td class="px-4 py-3 whitespace-nowrap text-right text-sm">
+                                            <button
+                                                @click="openItemModal(item)"
+                                                class="text-blue-600 hover:text-blue-800 font-medium mr-3"
+                                            >
+                                                編集
+                                            </button>
+                                            <button
+                                                @click="deleteItem(item.id)"
+                                                class="text-red-600 hover:text-red-800 font-medium"
+                                            >
+                                                削除
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- カレンダー表示 -->
+                <div x-show="viewMode === 'calendar'" class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                    <!-- カレンダーヘッダー -->
+                    <div class="border-b border-gray-200 p-4">
+                        <div class="flex items-center justify-between">
+                            <button
+                                @click="previousMonth()"
+                                class="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition font-medium"
+                            >
+                                ← 前月
+                            </button>
+                            <div class="flex items-center gap-2">
+                                <h3 class="text-xl font-bold text-gray-800">
+                                    <span x-text="calendarYear"></span>年<span x-text="calendarMonth"></span>月
+                                </h3>
+                                <button
+                                    @click="goToToday()"
+                                    class="px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                                >
+                                    今月
+                                </button>
+                            </div>
+                            <button
+                                @click="nextMonth()"
+                                class="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition font-medium"
+                            >
+                                次月 →
+                            </button>
+                        </div>
+                        <template x-if="selectedDate">
+                            <div class="mt-3 p-2 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between">
+                                <span class="text-sm text-blue-800">
+                                    📌 <span x-text="selectedDate"></span> でフィルタリング中
+                                </span>
+                                <button
+                                    @click="clearDateFilter()"
+                                    class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
+                                >
+                                    フィルタ解除
+                                </button>
+                            </div>
+                        </template>
+                    </div>
+
+                    <!-- カレンダー本体 -->
+                    <div class="p-4">
+                        <div class="grid grid-cols-7 gap-2">
+                            <!-- 曜日ヘッダー -->
+                            <div class="text-center text-sm font-bold text-red-600 py-2">日</div>
+                            <div class="text-center text-sm font-bold text-gray-700 py-2">月</div>
+                            <div class="text-center text-sm font-bold text-gray-700 py-2">火</div>
+                            <div class="text-center text-sm font-bold text-gray-700 py-2">水</div>
+                            <div class="text-center text-sm font-bold text-gray-700 py-2">木</div>
+                            <div class="text-center text-sm font-bold text-gray-700 py-2">金</div>
+                            <div class="text-center text-sm font-bold text-blue-600 py-2">土</div>
+
+                            <!-- 日付セル -->
+                            <template x-for="day in calendarDays" :key="day.dateStr || Math.random()">
+                                <div
+                                    @click="selectCalendarDate(day.dateStr)"
+                                    :class="{
+                                        'opacity-0': !day.isCurrentMonth,
+                                        'cursor-pointer hover:bg-blue-50': day.postedCount > 0,
+                                        'bg-blue-100 border-blue-300': day.dateStr === selectedDate,
+                                        'border-gray-200': day.dateStr !== selectedDate
+                                    }"
+                                    class="border rounded-lg p-2 min-h-[80px] relative transition"
+                                >
+                                    <template x-if="day.isCurrentMonth">
+                                        <div>
+                                            <div class="text-sm font-medium text-gray-700" x-text="day.date"></div>
+                                            <template x-if="day.postedCount > 0">
+                                                <div class="mt-1">
+                                                    <div class="inline-block px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full font-medium">
+                                                        <span x-text="day.postedCount"></span>件
+                                                    </div>
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+
+                    <!-- カレンダー説明 -->
+                    <div class="border-t border-gray-200 p-4 bg-gray-50">
+                        <p class="text-sm text-gray-600">
+                            💡 投稿がある日付をクリックすると、その日に投稿した商品がグリッド表示でフィルタリングされます
+                        </p>
+                    </div>
+                </div>
+
+                <!-- 商品がない場合 -->
+                <div x-show="filteredItems.length === 0" class="text-center py-12">
+                    <div class="text-6xl mb-4">📦</div>
+                    <h3 class="text-xl font-bold text-gray-700 mb-2">商品がありません</h3>
+                    <p class="text-gray-500 mb-4">「新規登録」ボタンから商品を追加してください</p>
+                    <button
+                        @click="openItemModal(null)"
+                        class="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium"
+                    >
+                        ➕ 最初の商品を登録
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 基本情報設定画面 -->
+        <div x-show="currentView === 'profile-basic'" class="min-h-screen bg-gray-50">
+            <div class="container mx-auto px-4 py-8">
+                <!-- 戻るボタン -->
+                <button
+                    @click="closeProfileEdit()"
+                    class="mb-6 px-4 py-2 text-gray-600 hover:text-gray-800 transition flex items-center gap-2"
+                >
+                    ← 戻る
+                </button>
+
+                <div class="bg-white rounded-2xl shadow-xl max-w-3xl mx-auto p-8">
+                    <h1 class="text-3xl font-bold text-gray-800 mb-8">🏠 基本情報設定</h1>
+
+                    <form @submit.prevent="saveProfile()">
+                        <div class="mb-8">
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        ROOM名 <span class="text-red-500">*</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        x-model="profile.room_name"
+                                        required
+                                        placeholder="例: ガジェット好きのROOM"
+                                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    >
+                                </div>
+
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        ルームID（オプション）
+                                    </label>
+                                    <input
+                                        type="text"
+                                        x-model="profile.room_id"
+                                        placeholder="例: abc123def"
+                                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    >
+                                    <p class="text-xs text-gray-500 mt-1">設定すると、商品一覧画面にルームへのリンクが表示されます</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ボタン -->
+                        <div class="flex gap-4">
+                            <button
+                                type="button"
+                                @click="closeProfileEdit()"
+                                class="flex-1 px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
+                            >
+                                キャンセル
+                            </button>
+                            <button
+                                type="submit"
+                                class="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium"
+                            >
+                                保存
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI連携設定画面 -->
+        <div x-show="currentView === 'profile-ai'" class="min-h-screen bg-gray-50">
+            <div class="container mx-auto px-4 py-8">
+                <!-- 戻るボタン -->
+                <button
+                    @click="closeProfileEdit()"
+                    class="mb-6 px-4 py-2 text-gray-600 hover:text-gray-800 transition flex items-center gap-2"
+                >
+                    ← 戻る
+                </button>
+
+                <div class="bg-white rounded-2xl shadow-xl max-w-3xl mx-auto p-8">
+                    <h1 class="text-3xl font-bold text-gray-800 mb-8">🤖 AI連携設定</h1>
+                    <p class="text-gray-600 mb-6">
+                        AI APIを設定すると、商品説明の自動生成などの機能が利用できるようになります。
+                    </p>
+
+                    <form @submit.prevent="saveProfile()">
+                        <!-- AI連携ON/OFF -->
+                        <div class="mb-8 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <h3 class="font-bold text-gray-800 mb-1">AI連携を有効にする</h3>
+                                    <p class="text-sm text-gray-600">APIキーを設定して、AI機能を利用できるようにします</p>
+                                </div>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        x-model="profile.ai_enabled"
+                                        class="sr-only peer"
+                                    >
+                                    <div class="w-14 h-7 bg-gray-300 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:start-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-blue-600"></div>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- AI設定詳細（ai_enabledがtrueの時のみ表示） -->
+                        <div x-show="profile.ai_enabled" x-transition>
+                            <!-- AIプロバイダー選択 -->
+                            <div class="mb-6">
+                                <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
+                                    🤖 AIプロバイダー選択
+                                </h2>
+                                <p class="text-sm text-gray-600 mb-4">
+                                    使用するAIプロバイダーを選択してください。
+                                </p>
+
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        プロバイダー
+                                    </label>
+                                    <template x-if="availableProviders.length > 0">
+                                        <select
+                                            x-model="selectedAIProvider"
+                                            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        >
+                                            <template x-for="provider in availableProviders" :key="provider.id">
+                                                <option :value="provider.id" x-text="`${provider.name} (${provider.description})`"></option>
+                                            </template>
+                                        </select>
+                                    </template>
+                                    <template x-if="availableProviders.length === 0">
+                                        <div class="w-full px-4 py-3 border border-red-300 bg-red-50 rounded-lg text-red-700">
+                                            利用可能なAIプロバイダーがありません。必要なパッケージをインストールしてください。
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <!-- APIキー・モデル設定 -->
+                            <div class="mb-6">
+                                <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
+                                    🔑 API設定
+                                </h2>
+
+                                <div class="space-y-4">
+                                    <!-- OpenAI -->
+                                    <div x-show="selectedAIProvider === 'openai'">
+                                        <div class="mb-4">
+                                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                                OpenAI APIキー
+                                            </label>
+                                            <input
+                                                type="password"
+                                                x-model="profile.ai_provider_openai_key"
+                                                placeholder="sk-..."
+                                                class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
+                                            >
+                                        </div>
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                                モデル名
+                                            </label>
+                                            <input
+                                                type="text"
+                                                x-model="profile.ai_provider_openai_model"
+                                                placeholder="例: gpt-4, gpt-4-turbo, gpt-3.5-turbo"
+                                                class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            >
+                                        </div>
+                                    </div>
+
+                                    <!-- Google Gemini -->
+                                    <div x-show="selectedAIProvider === 'gemini'">
+                                        <div class="mb-4">
+                                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                                Google Gemini APIキー
+                                            </label>
+                                            <input
+                                                type="password"
+                                                x-model="profile.ai_provider_gemini_key"
+                                                placeholder="AIza..."
+                                                class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
+                                            >
+                                        </div>
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                                モデル名
+                                            </label>
+                                            <input
+                                                type="text"
+                                                x-model="profile.ai_provider_gemini_model"
+                                                placeholder="例: gemini-pro, gemini-1.5-pro"
+                                                class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            >
+                                        </div>
+                                    </div>
+
+                                    <!-- Perplexity -->
+                                    <div x-show="selectedAIProvider === 'perplexity'">
+                                        <div class="mb-4">
+                                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                                Perplexity APIキー
+                                            </label>
+                                            <input
+                                                type="password"
+                                                x-model="profile.ai_provider_perplexity_key"
+                                                placeholder="pplx-..."
+                                                class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
+                                            >
+                                        </div>
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                                モデル名
+                                            </label>
+                                            <input
+                                                type="text"
+                                                x-model="profile.ai_provider_perplexity_model"
+                                                placeholder="例: llama-3.1-sonar-large-128k-online"
+                                                class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            >
+                                        </div>
+                                    </div>
+
+                                    <!-- Claude -->
+                                    <div x-show="selectedAIProvider === 'claude'">
+                                        <div class="mb-4">
+                                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                                Claude APIキー
+                                            </label>
+                                            <input
+                                                type="password"
+                                                x-model="profile.ai_provider_claude_key"
+                                                placeholder="sk-ant-..."
+                                                class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
+                                            >
+                                        </div>
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                                モデル名
+                                            </label>
+                                            <input
+                                                type="text"
+                                                x-model="profile.ai_provider_claude_model"
+                                                placeholder="例: claude-3-5-sonnet-20241022, claude-3-opus-20240229"
+                                                class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            >
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- ターゲット・方向性 -->
+                            <div class="mb-6">
+                                <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
+                                    👥 ターゲット・方向性
+                                </h2>
+                                <p class="text-sm text-gray-600 mb-4">
+                                    AI投稿文生成時に参照される情報です。ターゲット層や投稿スタイルを詳しく設定することで、より適切な投稿文が生成されます。
+                                </p>
+
+                                <div class="space-y-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                                            ターゲット層（誰に向けて発信しますか？）
+                                        </label>
+                                        <input
+                                            type="text"
+                                            x-model="profile.target_audience"
+                                            placeholder="例: 20-30代の働く女性、ガジェット初心者"
+                                            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        >
+                                    </div>
+
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                                            ROOMの方向性（どんな商品を紹介しますか？）
+                                        </label>
+                                        <textarea
+                                            x-model="profile.room_direction"
+                                            rows="2"
+                                            placeholder="例: 実際に使って良かったものだけを厳選して紹介"
+                                            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        ></textarea>
+                                    </div>
+
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                                            ROOMテーマ
+                                        </label>
+                                        <input
+                                            type="text"
+                                            x-model="profile.room_theme"
+                                            placeholder="3-5個入力（例: シンプル、ミニマル、時短、便利）"
+                                            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        >
+                                        <p class="mt-1 text-xs text-gray-500">※ カンマ（、,）またはスペースで区切って入力できます</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 投稿スタイル -->
+                            <div class="mb-8">
+                                <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
+                                    ✍️ 投稿スタイル
+                                </h2>
+
+                                <div class="space-y-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                                            トーン&マナー
+                                        </label>
+                                        <div class="flex flex-wrap gap-2">
+                                            <template x-for="tone in ['親しみやすい', '専門的', 'カジュアル', 'ていねい', 'フランク']" :key="tone">
+                                                <button
+                                                    type="button"
+                                                    @click="profile.tone_manner = tone"
+                                                    :class="profile.tone_manner === tone ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'"
+                                                    class="px-4 py-2 rounded-lg transition"
+                                                    x-text="tone"
+                                                ></button>
+                                            </template>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                                            投稿の特徴
+                                        </label>
+                                        <textarea
+                                            x-model="profile.posting_style"
+                                            rows="2"
+                                            placeholder="例: 絵文字多め、実体験ベース、比較レビュー"
+                                            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        ></textarea>
+                                    </div>
+
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                                            使いたくない言葉（NG Words）
+                                        </label>
+                                        <input
+                                            type="text"
+                                            x-model="profile.ng_words"
+                                            placeholder="例: 絶対、激安、完璧"
+                                            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        >
+                                        <p class="mt-1 text-xs text-gray-500">※ カンマ（、,）またはスペースで区切って入力できます</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ボタン -->
+                        <div class="flex gap-4">
+                            <button
+                                type="button"
+                                @click="closeProfileEdit()"
+                                class="flex-1 px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
+                            >
+                                キャンセル
+                            </button>
+                            <button
+                                type="submit"
+                                class="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium"
+                            >
+                                保存
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- ゴミ箱画面 -->
+        <div x-show="currentView === 'trash'" class="min-h-screen bg-gray-50">
+            <div class="container mx-auto px-4 py-8">
+                <!-- 戻るボタン -->
+                <button
+                    @click="navigateTo('items')"
+                    class="mb-6 px-4 py-2 text-gray-600 hover:text-gray-800 transition flex items-center gap-2"
+                >
+                    ← 商品一覧に戻る
+                </button>
+
+                <div class="bg-white rounded-2xl shadow-xl p-8">
+                    <div class="flex items-center justify-between mb-6">
+                        <h1 class="text-3xl font-bold text-gray-800">🗑️ ゴミ箱</h1>
+                        <p class="text-sm text-gray-600">
+                            <span x-text="trashItems.length"></span>件の商品
+                        </p>
+                    </div>
+
+                    <p class="text-gray-600 mb-6">
+                        削除した商品が表示されます。復元または完全削除を選択できます。
+                    </p>
+
+                    <!-- ゴミ箱が空の場合 -->
+                    <div x-show="trashItems.length === 0" class="text-center py-12">
+                        <div class="text-6xl mb-4">🎉</div>
+                        <p class="text-gray-600 text-lg">ゴミ箱は空です</p>
+                    </div>
+
+                    <!-- ゴミ箱の商品一覧 -->
+                    <div x-show="trashItems.length > 0" class="space-y-4">
+                        <template x-for="item in trashItems" :key="item.id">
+                            <div class="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition">
+                                <div class="flex items-start justify-between gap-4">
+                                    <!-- 商品情報 -->
+                                    <div class="flex-1">
+                                        <div class="flex items-start gap-3">
+                                            <!-- 画像 -->
+                                            <div class="flex-shrink-0">
+                                                <template x-if="item.has_photo && item.photo_path">
+                                                    <img
+                                                        :src="item.photo_path"
+                                                        :alt="item.name"
+                                                        class="w-16 h-16 object-cover rounded-lg border border-gray-200"
+                                                    >
+                                                </template>
+                                                <template x-if="!item.has_photo">
+                                                    <div class="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400 text-xs">
+                                                        No Image
+                                                    </div>
+                                                </template>
+                                            </div>
+
+                                            <!-- 商品名とカテゴリ -->
+                                            <div class="flex-1 min-w-0">
+                                                <h3 class="font-bold text-gray-800 mb-1 truncate" x-text="item.name"></h3>
+                                                <div class="flex flex-wrap gap-2 text-sm text-gray-600">
+                                                    <span x-text="item.category"></span>
+                                                    <template x-if="item.sub_category">
+                                                        <span> / <span x-text="item.sub_category"></span></span>
+                                                    </template>
+                                                </div>
+                                                <template x-if="item.deleted_at">
+                                                    <p class="text-xs text-gray-500 mt-2">
+                                                        削除日時: <span x-text="formatJSTDate(item.deleted_at)"></span>
+                                                    </p>
+                                                </template>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- アクションボタン -->
+                                    <div class="flex flex-col gap-2">
+                                        <button
+                                            @click="restoreItem(item.id)"
+                                            class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm font-medium whitespace-nowrap"
+                                        >
+                                            ↩️ 復元
+                                        </button>
+                                        <button
+                                            @click="deletePermanent(item.id)"
+                                            class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition text-sm font-medium whitespace-nowrap"
+                                        >
+                                            🗑️ 完全削除
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 商品登録・編集モーダル -->
+        <div
+            x-show="itemModalOpen"
+            x-cloak
+            class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+            @click.self="!loading && closeItemModal()"
+            @keydown.escape.window="itemModalOpen && !loading && closeItemModal()"
+            @keydown.ctrl.enter.window="itemModalOpen && !loading && !aiGenerating && saveItem()"
+            @keydown.meta.enter.window="itemModalOpen && !loading && !aiGenerating && saveItem()"
+        >
+            <div
+                class="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto relative overscroll-contain"
+                tabindex="-1"
+                x-init="$watch('itemModalOpen', value => { if (value) { $nextTick(() => $el.focus()) } })"
+            >
+
+                <div class="p-6">
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-2xl font-bold" x-text="editingItem ? '✏️ 商品編集' : '➕ 商品登録'"></h2>
+                        <button @click="closeItemModal()" :disabled="loading" class="text-gray-500 hover:text-gray-700 text-2xl disabled:opacity-50 disabled:cursor-not-allowed">
+                            ✕
+                        </button>
+                    </div>
+
+                    <form @submit.prevent="saveItem()">
+                        <!-- 基本情報 -->
+                        <div class="mb-6">
+                            <h3 class="font-bold text-gray-800 mb-3">基本情報</h3>
+
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        アイテム名 <span class="text-red-500">*</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        x-model="itemForm.name"
+                                        required
+                                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                    >
+                                </div>
+
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                                            カテゴリ
+                                        </label>
+                                        <select
+                                            x-model="itemForm.category"
+                                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                        >
+                                            <option>ガジェット</option>
+                                            <option>家電</option>
+                                            <option>ファッション</option>
+                                            <option>インテリア</option>
+                                            <option>キッチン用品</option>
+                                            <option>美容・コスメ</option>
+                                            <option>その他</option>
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                                            ブランド・型番
+                                        </label>
+                                        <input
+                                            type="text"
+                                            x-model="itemForm.brand_model"
+                                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                        >
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label class="flex items-center gap-2 cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            x-model="itemForm.has_item"
+                                            class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                        >
+                                        <span class="text-sm font-medium text-gray-700">所持している</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 画像 -->
+                        <div class="mb-6">
+                            <h3 class="font-bold text-gray-800 mb-3">商品画像</h3>
+
+                            <div class="space-y-4">
+                                <!-- 既存の画像（編集時） -->
+                                <template x-if="editingItem && itemForm.has_photo && itemForm.photo_path">
+                                    <div class="relative inline-block">
+                                        <img
+                                            :src="'http://localhost:8000/' + itemForm.photo_path"
+                                            :alt="itemForm.name"
+                                            class="w-48 h-48 object-cover rounded-lg border border-gray-300"
+                                        >
+                                        <button
+                                            type="button"
+                                            @click="if (editingItem) {
+                                                deleteImage(editingItem.id).then(() => {
+                                                    itemForm.has_photo = false;
+                                                    itemForm.photo_path = null;
+                                                    if (originalItemForm) {
+                                                        originalItemForm.has_photo = false;
+                                                        originalItemForm.photo_path = null;
+                                                    }
+                                                }).catch(() => {});
+                                            }"
+                                            class="absolute top-2 right-2 bg-red-600 text-white px-3 py-1 rounded-lg hover:bg-red-700 transition text-sm"
+                                        >
+                                            🗑️ 削除
+                                        </button>
+                                    </div>
+                                </template>
+
+                                <!-- 新規登録時の画像プレビュー -->
+                                <template x-if="!editingItem && pendingImagePreview">
+                                    <div class="relative inline-block">
+                                        <img
+                                            :src="pendingImagePreview"
+                                            alt="プレビュー"
+                                            class="w-48 h-48 object-cover rounded-lg border border-gray-300"
+                                        >
+                                        <button
+                                            type="button"
+                                            @click="pendingImageFile = null; pendingImagePreview = null;"
+                                            class="absolute top-2 right-2 bg-red-600 text-white px-3 py-1 rounded-lg hover:bg-red-700 transition text-sm"
+                                        >
+                                            🗑️ 削除
+                                        </button>
+                                    </div>
+                                </template>
+
+                                <!-- 画像アップロード -->
+                                <div>
+                                    <label class="block">
+                                        <span class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition cursor-pointer inline-block">
+                                            📷 画像を選択
+                                        </span>
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            @change="handleImageSelect($event)"
+                                            class="hidden"
+                                        >
+                                    </label>
+                                    <div class="text-xs text-gray-600 mt-2 space-y-1">
+                                        <template x-if="!editingItem">
+                                            <div>
+                                                <p>JPG, PNG, GIF, WebP形式に対応</p>
+                                                <p class="text-blue-600 mt-1">
+                                                    💡 画像を選択すると、商品保存時に自動的にアップロードされます
+                                                </p>
+                                            </div>
+                                        </template>
+                                        <template x-if="editingItem">
+                                            <div>
+                                                <p>JPG, PNG, GIF, WebP形式に対応</p>
+                                                <p class="text-amber-600 mt-1">
+                                                    ⚠️ 画像のアップロード・削除は即座に保存されます。キャンセルを押しても画像の変更は取り消されません。
+                                                </p>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+
+                                <!-- オリジナル写真チェックボックス -->
+                                <div>
+                                    <label class="flex items-center gap-2 cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            x-model="itemForm.is_original_photo"
+                                            class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                        >
+                                        <span class="text-sm font-medium text-gray-700">オリジナル写真</span>
+                                    </label>
+                                    <p class="text-xs text-gray-500 mt-1 ml-6">
+                                        チェックを入れると、AI生成時に「#オリジナル写真」が自動で付与されます
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 使用状況 -->
+                        <div class="mb-6">
+                            <h3 class="font-bold text-gray-800 mb-3">使用状況</h3>
+
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        主な用途・シーン
+                                    </label>
+                                    <input
+                                        type="text"
+                                        x-model="itemForm.usage_scene"
+                                        placeholder="例: 通勤、旅行、在宅ワーク"
+                                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                    >
+                                </div>
+
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        使用頻度
+                                    </label>
+                                    <div class="flex flex-wrap gap-2">
+                                        <template x-for="freq in ['毎日', '週2-3回', '月1-2回', '年数回']" :key="freq">
+                                            <button
+                                                type="button"
+                                                @click="itemForm.frequency = freq"
+                                                :class="itemForm.frequency === freq ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'"
+                                                class="px-4 py-2 rounded-lg transition text-sm"
+                                                x-text="freq"
+                                            ></button>
+                                        </template>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        気に入っているポイント
+                                    </label>
+                                    <textarea
+                                        x-model="itemForm.favorite_points"
+                                        rows="3"
+                                        placeholder="商品の魅力を具体的に..."
+                                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                    ></textarea>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 投稿設定 -->
+                        <div class="mb-6">
+                            <h3 class="font-bold text-gray-800 mb-3">投稿設定</h3>
+
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        投稿状況
+                                    </label>
+                                    <div class="flex flex-wrap gap-2">
+                                        <template x-for="status in ['未投稿', '下書き', '投稿済み', '非公開']" :key="status">
+                                            <button
+                                                type="button"
+                                                @click="itemForm.status = status"
+                                                :class="itemForm.status === status ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'"
+                                                class="px-4 py-2 rounded-lg transition text-sm"
+                                                x-text="status"
+                                            ></button>
+                                        </template>
+                                    </div>
+                                </div>
+
+                                <!-- 投稿日時入力（ステータスが「投稿済み」の場合のみ表示） -->
+                                <template x-if="itemForm.status === '投稿済み'">
+                                    <div>
+                                        <div class="flex items-center justify-between mb-2">
+                                            <label class="block text-sm font-medium text-gray-700">
+                                                投稿日時
+                                                <span x-show="itemForm.posted_at_history && itemForm.posted_at_history.length > 1"
+                                                      x-text="`(履歴 ${itemForm.posted_at_history.length}件)`"
+                                                      class="ml-2 text-blue-600 font-medium text-sm"></span>
+                                            </label>
+                                            <button
+                                                type="button"
+                                                @click="addPostedAtHistory()"
+                                                x-show="(!itemForm.posted_at_history || itemForm.posted_at_history.length < 3)"
+                                                class="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                                            >
+                                                + 投稿日時を追加
+                                            </button>
+                                        </div>
+
+                                        <template x-if="itemForm.posted_at_history && itemForm.posted_at_history.length > 0">
+                                            <div class="space-y-2">
+                                                <template x-for="(historyDate, index) in itemForm.posted_at_history" :key="index">
+                                                    <div class="flex gap-2 items-center">
+                                                        <input
+                                                            type="datetime-local"
+                                                            :value="formatDateTimeLocal(historyDate)"
+                                                            @change="updatePostedAtHistory(index, $event.target.value)"
+                                                            class="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                                        >
+                                                        <button
+                                                            type="button"
+                                                            @click="removePostedAtHistory(index)"
+                                                            class="px-3 py-2 text-sm text-red-600 hover:text-red-800 hover:bg-red-50 rounded-lg transition"
+                                                            title="削除"
+                                                        >
+                                                            🗑️
+                                                        </button>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                        </template>
+
+                                        <template x-if="!itemForm.posted_at_history || itemForm.posted_at_history.length === 0">
+                                            <p class="text-xs text-gray-400 py-2">投稿日時を追加してください</p>
+                                        </template>
+                                    </div>
+                                </template>
+
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                                            投稿優先度: <span x-text="'⭐'.repeat(itemForm.priority)"></span>
+                                        </label>
+                                        <input
+                                            type="range"
+                                            x-model="itemForm.priority"
+                                            min="1"
+                                            max="5"
+                                            class="w-full"
+                                        >
+                                    </div>
+
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                                            季節性
+                                        </label>
+                                        <select
+                                            x-model="itemForm.seasonality"
+                                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                        >
+                                            <option>通年</option>
+                                            <option>春</option>
+                                            <option>夏</option>
+                                            <option>秋</option>
+                                            <option>冬</option>
+                                            <option>春夏</option>
+                                            <option>秋冬</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- リンク -->
+                        <div class="mb-6">
+                            <h3 class="font-bold text-gray-800 mb-3">リンク</h3>
+
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        楽天市場リンク
+                                    </label>
+                                    <div class="flex gap-2">
+                                        <input
+                                            type="url"
+                                            x-model="itemForm.rakuten_url"
+                                            placeholder="https://item.rakuten.co.jp/..."
+                                            class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                        >
+                                        <a
+                                            x-show="itemForm.rakuten_url"
+                                            :href="itemForm.rakuten_url"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center gap-1 whitespace-nowrap"
+                                        >
+                                            開く 🔗
+                                        </a>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        メモ
+                                    </label>
+                                    <textarea
+                                        x-model="itemForm.memo"
+                                        rows="2"
+                                        placeholder="その他メモ..."
+                                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                    ></textarea>
+                                </div>
+
+                                <div>
+                                    <div class="flex items-center justify-between mb-2">
+                                        <label class="block text-sm font-medium text-gray-700">
+                                            商品紹介文
+                                        </label>
+                                        <div class="flex gap-2">
+                                            <button
+                                                type="button"
+                                                @click="generateDescription()"
+                                                :disabled="loading"
+                                                class="px-3 py-1 text-sm bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg hover:from-purple-700 hover:to-blue-700 transition flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            >
+                                                ✨ AIで生成
+                                            </button>
+                                            <button
+                                                type="button"
+                                                @click="copyToClipboard(itemForm.description)"
+                                                :disabled="loading"
+                                                class="px-3 py-1 text-sm bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            >
+                                                📋 コピー
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <textarea
+                                        x-model="itemForm.description"
+                                        rows="6"
+                                        placeholder="商品の紹介文を入力してください。AIで生成ボタンを押すと、入力内容とプロフィール設定を基に自動生成されます。"
+                                        :disabled="loading"
+                                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                                    ></textarea>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ボタン -->
+                        <div class="flex justify-end gap-3">
+                            <button
+                                type="button"
+                                @click="closeItemModal()"
+                                :disabled="loading"
+                                class="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                キャンセル
+                            </button>
+                            <button
+                                type="submit"
+                                :disabled="loading"
+                                class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                保存
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- 商品詳細モーダル -->
+        <div
+            x-show="itemDetailModalOpen"
+            x-cloak
+            class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+            @click.self="closeItemDetailModal()"
+        >
+            <div
+                class="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto overscroll-contain"
+                tabindex="-1"
+                x-init="$watch('itemDetailModalOpen', value => { if (value) { $nextTick(() => $el.focus()) } })"
+            >
+                <div class="p-6">
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-2xl font-bold">📋 商品詳細</h2>
+                        <button @click="closeItemDetailModal()" class="text-gray-500 hover:text-gray-700 text-2xl">
+                            ✕
+                        </button>
+                    </div>
+
+                    <template x-if="detailItem">
+                        <div class="space-y-4">
+                            <!-- 商品名 -->
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">商品名</label>
+                                <p class="text-lg font-bold" x-text="detailItem.name"></p>
+                            </div>
+
+                            <!-- ステータスと優先度 -->
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">投稿状況</label>
+                                    <span
+                                        class="inline-block px-3 py-1 text-sm rounded-full font-medium"
+                                        :class="{
+                                            'bg-red-100 text-red-800': detailItem.status === '未投稿',
+                                            'bg-green-100 text-green-800': detailItem.status === '投稿済み',
+                                            'bg-yellow-100 text-yellow-800': detailItem.status === '下書き',
+                                            'bg-gray-100 text-gray-800': detailItem.status === '非公開'
+                                        }"
+                                        x-text="detailItem.status"
+                                    ></span>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">優先度</label>
+                                    <p class="text-lg" x-text="'⭐'.repeat(detailItem.priority)"></p>
+                                </div>
+                            </div>
+
+                            <!-- カテゴリとブランド -->
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">カテゴリ</label>
+                                    <p x-text="detailItem.category || '-'"></p>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">ブランド・型番</label>
+                                    <p x-text="detailItem.brand_model || '-'"></p>
+                                </div>
+                            </div>
+
+                            <!-- サブカテゴリ -->
+                            <div x-show="detailItem.sub_category">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">サブカテゴリ</label>
+                                <p x-text="detailItem.sub_category"></p>
+                            </div>
+
+                            <!-- 使用シーンと頻度 -->
+                            <div class="grid grid-cols-2 gap-4">
+                                <div x-show="detailItem.usage_scene">
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">使用シーン</label>
+                                    <p x-text="detailItem.usage_scene"></p>
+                                </div>
+                                <div x-show="detailItem.frequency">
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">使用頻度</label>
+                                    <p x-text="detailItem.frequency"></p>
+                                </div>
+                            </div>
+
+                            <!-- お気に入りポイント -->
+                            <div x-show="detailItem.favorite_points">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">お気に入りポイント</label>
+                                <p class="whitespace-pre-wrap" x-text="detailItem.favorite_points"></p>
+                            </div>
+
+                            <!-- 季節性 -->
+                            <div x-show="detailItem.seasonality">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">季節性</label>
+                                <p x-text="detailItem.seasonality"></p>
+                            </div>
+
+                            <!-- 所持状況とオリジナル写真 -->
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">所持状況</label>
+                                    <p>
+                                        <span
+                                            x-show="detailItem.has_item"
+                                            class="inline-block px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded"
+                                        >✓ 所持している</span>
+                                        <span
+                                            x-show="!detailItem.has_item"
+                                            class="text-gray-500"
+                                        >-</span>
+                                    </p>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">オリジナル写真</label>
+                                    <p>
+                                        <span
+                                            x-show="detailItem.is_original_photo"
+                                            class="inline-block px-2 py-1 text-xs bg-green-100 text-green-800 rounded"
+                                        >✓ オリジナル</span>
+                                        <span
+                                            x-show="!detailItem.is_original_photo"
+                                            class="text-gray-500"
+                                        >-</span>
+                                    </p>
+                                </div>
+                            </div>
+
+                            <!-- URL -->
+                            <div class="grid grid-cols-2 gap-4">
+                                <div x-show="detailItem.rakuten_url">
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">楽天URL</label>
+                                    <a
+                                        :href="detailItem.rakuten_url"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        class="text-blue-600 hover:text-blue-800 hover:underline text-sm break-all"
+                                    >
+                                        🛒 商品ページを開く
+                                    </a>
+                                </div>
+                                <div x-show="detailItem.room_url">
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">ROOM URL</label>
+                                    <a
+                                        :href="detailItem.room_url"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        class="text-blue-600 hover:text-blue-800 hover:underline text-sm break-all"
+                                    >
+                                        🔗 ROOMページを開く
+                                    </a>
+                                </div>
+                            </div>
+
+                            <!-- メモ -->
+                            <div x-show="detailItem.memo">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">メモ</label>
+                                <p class="whitespace-pre-wrap text-sm text-gray-600" x-text="detailItem.memo"></p>
+                            </div>
+
+                            <!-- 更新日時 -->
+                            <div class="text-xs text-gray-400 pt-4 border-t">
+                                <template x-if="detailItem.status === '投稿済み' && detailItem.posted_at_history && detailItem.posted_at_history.length > 0">
+                                    <div>
+                                        <p class="font-medium text-gray-600 mb-1">
+                                            投稿履歴 (新しい順):
+                                            <span x-show="detailItem.posted_at_history.length > 1"
+                                                  x-text="`(${detailItem.posted_at_history.length}件)`"
+                                                  class="ml-1 text-blue-600"></span>
+                                        </p>
+                                        <template x-for="(historyDate, index) in detailItem.posted_at_history" :key="index">
+                                            <p class="text-gray-500">• <span x-text="new Date(historyDate).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })"></span></p>
+                                        </template>
+                                    </div>
+                                </template>
+
+                                <p>更新: <span x-text="new Date(detailItem.updated_at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })"></span></p>
+                                <p>作成: <span x-text="new Date(detailItem.created_at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })"></span></p>
+                            </div>
+
+                            <!-- ボタン -->
+                            <div class="flex gap-3 pt-4">
+                                <button
+                                    @click="editFromDetail()"
+                                    class="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium"
+                                >
+                                    ✏️ 編集
+                                </button>
+                                <button
+                                    @click="deleteItem(detailItem.id); closeItemDetailModal()"
+                                    class="flex-1 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-medium"
+                                >
+                                    🗑️ 削除
+                                </button>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+
+        <!-- 画面全体ローディングオーバーレイ（AI生成中など） -->
+        <div
+            x-show="loading"
+            x-cloak
+            class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[100]"
+        >
+            <div class="bg-white rounded-xl shadow-2xl p-8 max-w-sm w-full mx-4">
+                <div class="text-center">
+                    <div class="inline-block animate-spin rounded-full h-16 w-16 border-4 border-blue-600 border-t-transparent mb-6"></div>
+                    <p class="text-xl font-bold text-gray-800 mb-2" x-text="loadingMessage || '処理中...'"></p>
+                    <p class="text-sm text-gray-600">しばらくお待ちください</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- トースト通知 -->
+        <div class="fixed top-4 right-4 z-[110] space-y-3 pointer-events-none">
+            <template x-for="notification in notifications" :key="notification.id">
+                <div
+                    x-show="notification.show"
+                    x-transition:enter="transition ease-out duration-300"
+                    x-transition:enter-start="opacity-0 translate-x-full"
+                    x-transition:enter-end="opacity-100 translate-x-0"
+                    x-transition:leave="transition ease-in duration-200"
+                    x-transition:leave-start="opacity-100 translate-x-0"
+                    x-transition:leave-end="opacity-0 translate-x-full"
+                    class="pointer-events-auto bg-white rounded-lg shadow-lg border-l-4 overflow-hidden max-w-md"
+                    :class="{
+                        'border-blue-500': notification.type === 'info',
+                        'border-green-500': notification.type === 'success',
+                        'border-red-500': notification.type === 'error',
+                        'border-yellow-500': notification.type === 'warning'
+                    }"
+                >
+                    <div class="p-4 flex items-start">
+                        <div class="flex-shrink-0 mr-3">
+                            <template x-if="notification.type === 'success'">
+                                <svg class="h-6 w-6 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                            </template>
+                            <template x-if="notification.type === 'error'">
+                                <svg class="h-6 w-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                            </template>
+                            <template x-if="notification.type === 'warning'">
+                                <svg class="h-6 w-6 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                                </svg>
+                            </template>
+                            <template x-if="notification.type === 'info'">
+                                <svg class="h-6 w-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                            </template>
+                        </div>
+                        <div class="flex-1">
+                            <p class="text-sm font-medium text-gray-900 whitespace-pre-line" x-text="notification.message"></p>
+                        </div>
+                        <button
+                            @click="removeNotification(notification.id)"
+                            class="flex-shrink-0 ml-3 text-gray-400 hover:text-gray-600 transition"
+                        >
+                            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </template>
+        </div>
+
+        <!-- ショートカットヘルプモーダル -->
+        <div
+            x-show="shortcutHelpModalOpen"
+            x-cloak
+            class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[120] p-4"
+            @click.self="shortcutHelpModalOpen = false"
+        >
+            <div
+                class="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto overscroll-contain"
+                tabindex="-1"
+                x-init="$watch('shortcutHelpModalOpen', value => { if (value) { $nextTick(() => $el.focus()) } })"
+            >
+                <div class="p-6">
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-2xl font-bold">⌨️ キーボードショートカット</h2>
+                        <button @click="shortcutHelpModalOpen = false" class="text-gray-500 hover:text-gray-700 text-2xl">
+                            ✕
+                        </button>
+                    </div>
+
+                    <div class="space-y-6">
+                        <!-- 商品一覧画面 -->
+                        <div>
+                            <h3 class="font-bold text-lg text-gray-800 mb-3">📋 商品一覧画面</h3>
+                            <div class="space-y-2">
+                                <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                                    <span class="text-gray-700">新規商品登録</span>
+                                    <kbd class="px-3 py-1 bg-gray-100 border border-gray-300 rounded text-sm font-mono">N</kbd>
+                                </div>
+                                <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                                    <span class="text-gray-700">検索フォーカス</span>
+                                    <kbd class="px-3 py-1 bg-gray-100 border border-gray-300 rounded text-sm font-mono">/</kbd>
+                                </div>
+                                <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                                    <span class="text-gray-700">検索から商品ナビゲーションへ</span>
+                                    <kbd class="px-3 py-1 bg-gray-100 border border-gray-300 rounded text-sm font-mono">Esc</kbd>
+                                </div>
+                                <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                                    <span class="text-gray-700">グリッド表示</span>
+                                    <kbd class="px-3 py-1 bg-gray-100 border border-gray-300 rounded text-sm font-mono">1</kbd>
+                                </div>
+                                <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                                    <span class="text-gray-700">リスト表示</span>
+                                    <kbd class="px-3 py-1 bg-gray-100 border border-gray-300 rounded text-sm font-mono">2</kbd>
+                                </div>
+                                <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                                    <span class="text-gray-700">コンパクト表示</span>
+                                    <kbd class="px-3 py-1 bg-gray-100 border border-gray-300 rounded text-sm font-mono">3</kbd>
+                                </div>
+                                <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                                    <span class="text-gray-700">カレンダー表示</span>
+                                    <kbd class="px-3 py-1 bg-gray-100 border border-gray-300 rounded text-sm font-mono">4</kbd>
+                                </div>
+                                <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                                    <span class="text-gray-700">商品ナビゲーション開始</span>
+                                    <kbd class="px-3 py-1 bg-gray-100 border border-gray-300 rounded text-sm font-mono">Esc</kbd>
+                                </div>
+                                <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                                    <span class="text-gray-700">このヘルプを表示</span>
+                                    <kbd class="px-3 py-1 bg-gray-100 border border-gray-300 rounded text-sm font-mono">?</kbd>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 商品ナビゲーションモード -->
+                        <div>
+                            <h3 class="font-bold text-lg text-gray-800 mb-3">🎯 商品ナビゲーションモード</h3>
+                            <div class="space-y-2">
+                                <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                                    <span class="text-gray-700">商品間移動</span>
+                                    <div class="flex gap-2">
+                                        <kbd class="px-3 py-1 bg-gray-100 border border-gray-300 rounded text-sm font-mono">↑</kbd>
+                                        <kbd class="px-3 py-1 bg-gray-100 border border-gray-300 rounded text-sm font-mono">↓</kbd>
+                                        <kbd class="px-3 py-1 bg-gray-100 border border-gray-300 rounded text-sm font-mono">←</kbd>
+                                        <kbd class="px-3 py-1 bg-gray-100 border border-gray-300 rounded text-sm font-mono">→</kbd>
+                                    </div>
+                                </div>
+                                <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                                    <span class="text-gray-700">選択中の商品を編集</span>
+                                    <kbd class="px-3 py-1 bg-gray-100 border border-gray-300 rounded text-sm font-mono">Enter</kbd>
+                                </div>
+                                <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                                    <span class="text-gray-700">選択中の商品を削除（ゴミ箱へ）</span>
+                                    <kbd class="px-3 py-1 bg-gray-100 border border-gray-300 rounded text-sm font-mono">D</kbd>
+                                </div>
+                                <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                                    <span class="text-gray-700">ナビゲーション解除</span>
+                                    <kbd class="px-3 py-1 bg-gray-100 border border-gray-300 rounded text-sm font-mono">Esc</kbd>
+                                </div>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-2">
+                                ※ グリッド表示では4方向移動、リスト/コンパクト表示では上下移動のみ
+                            </p>
+                        </div>
+
+                        <!-- 商品編集モーダル -->
+                        <div>
+                            <h3 class="font-bold text-lg text-gray-800 mb-3">✏️ 商品編集モーダル</h3>
+                            <div class="space-y-2">
+                                <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                                    <span class="text-gray-700">保存</span>
+                                    <div class="flex gap-2">
+                                        <kbd class="px-3 py-1 bg-gray-100 border border-gray-300 rounded text-sm font-mono">Ctrl + Enter</kbd>
+                                        <span class="text-gray-400">または</span>
+                                        <kbd class="px-3 py-1 bg-gray-100 border border-gray-300 rounded text-sm font-mono">⌘ + Enter</kbd>
+                                    </div>
+                                </div>
+                                <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                                    <span class="text-gray-700">キャンセル</span>
+                                    <kbd class="px-3 py-1 bg-gray-100 border border-gray-300 rounded text-sm font-mono">Esc</kbd>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 注意事項 -->
+                        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                            <div class="text-sm text-blue-800 space-y-2">
+                                <p>
+                                    <strong>💡 ヒント:</strong> 入力フォーム（テキストボックスなど）にフォーカスがある場合、一部のショートカットは無効になります。
+                                </p>
+                                <p>
+                                    <strong>🔍 検索のワークフロー:</strong> <kbd class="px-2 py-0.5 bg-white border border-blue-300 rounded text-xs font-mono">/</kbd> で検索 → 入力 → <kbd class="px-2 py-0.5 bg-white border border-blue-300 rounded text-xs font-mono">Esc</kbd> で商品ナビゲーション → <kbd class="px-2 py-0.5 bg-white border border-blue-300 rounded text-xs font-mono">↑↓</kbd> で移動 → <kbd class="px-2 py-0.5 bg-white border border-blue-300 rounded text-xs font-mono">Enter</kbd> で編集
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 閉じるボタン -->
+                    <div class="mt-6 flex justify-end">
+                        <button
+                            @click="shortcutHelpModalOpen = false"
+                            class="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition"
+                        >
+                            閉じる
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 画像クロップモーダル（x-data スコープ内に配置する必要がある） -->
+        <div
+            id="cropModal"
+            class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50"
+            style="display: none;"
+        >
+            <div class="bg-white rounded-xl shadow-2xl p-6 max-w-lg w-full mx-4">
+                <h3 class="text-lg font-bold mb-3 text-gray-800">📐 画像の位置を調整（1:1）</h3>
+                <p class="text-sm text-gray-500 mb-4">ドラッグして投稿範囲を選択してください</p>
+                <div class="w-full" style="max-height: 400px; overflow: hidden;">
+                    <img id="cropperImage" src="" alt="crop target" style="max-width: 100%; display: block;">
+                </div>
+                <div class="flex justify-end gap-3 mt-5">
+                    <button
+                        @click="cancelCrop()"
+                        class="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
+                    >キャンセル</button>
+                    <button
+                        @click="confirmCrop()"
+                        class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium"
+                    >✅ この範囲で確定</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/app-api.js"></script>
+</body>
+</html>
